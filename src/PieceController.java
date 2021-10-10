@@ -1,4 +1,5 @@
 import java.awt.Graphics;
+import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 
 public class PieceController
@@ -24,11 +25,12 @@ public class PieceController
 
     public void update()
     {
+        // Piece Dragging
         Point targetPosition = new Point(input.getMousePosition().x / TILE_WIDTH, input.getMousePosition().y / TILE_HEIGHT);
 
         if (input.isButtonPressed(MouseEvent.BUTTON1))
         {
-            if (board.grid[targetPosition.y * 8 + targetPosition.x] != null)
+            if (board.movesGenerated && !board.waitingForPromotion && board.grid[targetPosition.y * 8 + targetPosition.x] != null)
             {
                 draggedPieceBoardPos = targetPosition;
                 draggedPiecePos = new Point(input.getMousePosition().x - TILE_WIDTH / 2, input.getMousePosition().y - TILE_HEIGHT / 2);
@@ -41,15 +43,11 @@ public class PieceController
         }
         else if (input.isButtonReleased(MouseEvent.BUTTON1))
         {
-            if (isDragging && board.isMoveLegal(draggedPieceBoardPos.y * 8 + draggedPieceBoardPos.x, targetPosition.y * 8 + targetPosition.x))
+            if (isDragging && board.movesGenerated && board.isMoveLegal(draggedPieceBoardPos.y * 8 + draggedPieceBoardPos.x, targetPosition.y * 8 + targetPosition.x))
             {
-                if (board.gameMode == "Sandbox")
+                if (board.gameMode == "Sandbox" || board.grid[draggedPieceBoardPos.y * 8 + draggedPieceBoardPos.x].color == board.turn)
                 {
-                    board.makeMove(new Move(draggedPieceBoardPos.y * 8 + draggedPieceBoardPos.x, targetPosition.y * 8 + targetPosition.x));
-                }
-                else if (board.grid[draggedPieceBoardPos.y * 8 + draggedPieceBoardPos.x].color == board.turn)
-                {
-                    board.makeMove(new Move(draggedPieceBoardPos.y * 8 + draggedPieceBoardPos.x, targetPosition.y * 8 + targetPosition.x));
+                    board.tryMakeMove(draggedPieceBoardPos.y * 8 + draggedPieceBoardPos.x, targetPosition.y * 8 + targetPosition.x);
                 }
             }
 
@@ -63,6 +61,13 @@ public class PieceController
         {
             draggedPiecePos.x = input.getMousePosition().x - TILE_WIDTH / 2;
             draggedPiecePos.y = input.getMousePosition().y - TILE_HEIGHT / 2;
+        }
+
+        // Revert Move
+        if (input.isKeyPressed(KeyEvent.VK_Z))
+        {
+            board.revertMove();
+            board.unhighlightMoves();
         }
     }
 

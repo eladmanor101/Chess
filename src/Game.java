@@ -1,5 +1,6 @@
 import java.awt.Canvas;
 import java.awt.Graphics;
+import java.awt.event.KeyEvent;
 import java.awt.image.BufferStrategy;
 
 import java.io.IOException;
@@ -94,6 +95,14 @@ public class Game extends Canvas implements Runnable
     public void update(double deltaTime)
     {
         board.pieceController.update();
+
+        if (input.isKeyPressed(KeyEvent.VK_SPACE))
+        {
+            board = new Board(input);
+            board.loadBoardFromFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR");
+            board.generateMoves();
+        }
+
         input.update();
     }
 

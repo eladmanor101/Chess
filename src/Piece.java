@@ -3,6 +3,8 @@ public class Piece
     char type;
     char color;
 
+    boolean hasMoved = false;
+
     public Piece(char type, char color)
     {
         this.type = type;

@@ -14,13 +14,16 @@ public class Board
     String gameMode = "Sandbox";
 
     PieceController pieceController;
-
     PieceLocations pieceLocations = new PieceLocations();
 
     ArrayList<Move> moves;
-    ArrayList<Move> moveLog;
+    ArrayList<MoveLog> moveLog;
     ArrayList<Move> highlightedMoves;
     boolean movesGenerated = false;
+
+    boolean waitingForPromotion = false;
+    int promotionSquare;
+    char promotionColor;
 
     private int[][] squaresToEdge = new int[64][8];
     int[] directions = {8, -8, -1, 1, 7, -7, 9, -9};
@@ -35,6 +38,7 @@ public class Board
         pieceController = new PieceController(input, this);
 
         highlightedMoves = new ArrayList<Move>();
+        moveLog = new ArrayList<MoveLog>();
 
         for (int i = 0; i < 8; i++)
         {
@@ -135,6 +139,29 @@ public class Board
                 }
             }
         }
+
+        // Draw Promotion Request
+        if (waitingForPromotion)
+        {
+            g.setColor(Color.WHITE);
+            g.fillRect(promotionSquare % 8, promotionSquare / 8, TILE_WIDTH, 4 * TILE_HEIGHT);
+
+            char[] promotionChoices = {'q', 'r', 'b', 'n'};
+            for (int i = 0; i < 4; i++)
+            {
+                try
+                {
+                    BufferedImage pieceImage = Game.pieceImages.get(promotionColor + " " + promotionChoices[i]);
+                    pieceImage = Utilities.resizeImage(pieceImage, TILE_WIDTH, TILE_HEIGHT);
+
+                    g.drawImage(pieceImage, promotionSquare % 8, promotionSquare / 8 + i * TILE_HEIGHT, null);
+                }
+                catch (IOException e)
+                {
+                    e.printStackTrace();
+                }
+            }
+        }
     }
 
     public void loadBoardFromFen(String fen)
@@ -171,8 +198,9 @@ public class Board
 
     }
 
-    public void makeMove(Move move)
+    private void makeMove(Move move)
     {
+        // Sound
         SoundClip sound;
         if (grid[move.targetSquare] == null)
         {
@@ -184,24 +212,82 @@ public class Board
         }
         sound.play();
 
+        Piece takenPiece = null;
         if (grid[move.targetSquare] != null)
         {
             pieceLocations.removePiece(grid[move.targetSquare], move.targetSquare);
+            takenPiece = grid[move.targetSquare];
         }
         pieceLocations.updatePiece(grid[move.startSquare], move.startSquare, move.targetSquare);
 
         grid[move.targetSquare] = new Piece(grid[move.startSquare]);
+        grid[move.targetSquare].hasMoved = true;
         grid[move.startSquare] = null;
 
-        //moveLog.add(move);
+        if (move.isCastling)
+        {
+            int direction = (move.targetSquare - move.startSquare) / Math.abs(move.targetSquare - move.startSquare);
+            int rookPosition = move.startSquare + direction * squaresToEdge[move.startSquare][(direction == 1) ? 3 : 2];
+
+            grid[move.startSquare + direction] = grid[rookPosition];
+            grid[rookPosition] = null;
+
+            pieceLocations.updatePiece(grid[move.startSquare + direction], rookPosition, move.startSquare + direction);
+        }
+        else if (move.isPromotion)
+        {
+            waitingForPromotion = true;
+            promotionSquare = move.targetSquare;
+            promotionColor = grid[move.targetSquare].color;
+        }
+
+        moveLog.add(new MoveLog(move.startSquare, move.targetSquare, takenPiece));
 
         unhighlightMoves();
         switchTurns();
     }
 
+    public void tryMakeMove(int startSquare, int targetSquare)
+    {
+        for (int i = 0; i < moves.size(); i++)
+        {
+            if (moves.get(i).startSquare == startSquare && moves.get(i).targetSquare == targetSquare)
+            {
+                makeMove(moves.get(i));
+            }
+        }
+    }
+
     public void revertMove()
     {
+        if (moveLog.size() == 0) { return; }
+        MoveLog move = moveLog.remove(moveLog.size() - 1);
 
+        if (grid[move.targetSquare] != null)
+        {
+            pieceLocations.removePiece(grid[move.targetSquare], move.targetSquare);
+        }
+        pieceLocations.updatePiece(grid[move.targetSquare], move.targetSquare, move.startSquare);
+
+        grid[move.startSquare] = new Piece(grid[move.targetSquare]);
+        grid[move.targetSquare] = move.takenPiece;
+
+        if (move.isCastling)
+        {
+            int direction = (move.targetSquare - move.startSquare) / Math.abs(move.targetSquare - move.startSquare);
+            int rookPosition = move.startSquare + direction * squaresToEdge[move.startSquare][(direction == 1) ? 3 : 2];
+
+            grid[rookPosition] = grid[move.startSquare + direction];
+            grid[move.startSquare + direction] = null;
+
+            pieceLocations.updatePiece(grid[rookPosition], move.startSquare + direction, rookPosition);
+        }
+        else if (move.isPromotion)
+        {
+            waitingForPromotion = false;
+        }
+
+        switchTurns();
     }
 
     public boolean isMoveLegal(int startSquare, int targetSquare)
@@ -374,6 +460,37 @@ public class Board
             }
         }
 
+        // Castling Moves
+        Piece king = grid[startSquare];
+        if (!king.hasMoved)
+        {
+            for (int dir = -1; dir <= 1; dir += 2)
+            {
+                int castleLength = squaresToEdge[startSquare][(dir == 1) ? 3 : 2];
+                boolean canCastle = true;
+
+                for (int i = 1; i < castleLength; i++)
+                {
+                    if (grid[startSquare + i * dir] != null)
+                    {
+                        canCastle = false;
+                    }
+                }
+
+                if (grid[startSquare + castleLength * dir] == null || grid[startSquare + castleLength * dir].type != 'r' || grid[startSquare + castleLength * dir].color != king.color)
+                {
+                    canCastle = false;
+                }
+
+                if (canCastle)
+                {
+                    Move castlingMove = new Move(startSquare, startSquare + 2 * dir);
+                    castlingMove.isCastling = true;
+                    moves.add(castlingMove);
+                }
+            }
+        }
+
         return moves;
     }
 
@@ -533,7 +650,16 @@ public class Board
 
                     if (targetPiece == null)
                     {
-                        moves.add(new Move(startSquare, targetSquare));
+                        Move move = new Move(startSquare, targetSquare);
+                        if (targetSquare / 8 == (piece.color == 'w' ? 0 : 7))
+                        {
+                            move.isPromotion = true;
+                            moves.add(move);
+                        }
+                        else
+                        {
+                            moves.add(move);
+                        }
                     }
                 }
             }
@@ -546,7 +672,16 @@ public class Board
 
             if (targetPiece != null && targetPiece.color != piece.color)
             {
-                moves.add(new Move(startSquare, targetSquare));
+                Move move = new Move(startSquare, targetSquare);
+                if (targetSquare / 8 == (piece.color == 'w' ? 0 : 7))
+                {
+                    move.isPromotion = true;
+                    moves.add(move);
+                }
+                else
+                {
+                    moves.add(move);
+                }
             }
         }
 
@@ -557,7 +692,16 @@ public class Board
 
             if (targetPiece != null && targetPiece.color != piece.color)
             {
-                moves.add(new Move(startSquare, targetSquare));
+                Move move = new Move(startSquare, targetSquare);
+                if (targetSquare / 8 == (piece.color == 'w' ? 0 : 7))
+                {
+                    move.isPromotion = true;
+                    moves.add(move);
+                }
+                else
+                {
+                    moves.add(move);
+                }
             }
         }
 
